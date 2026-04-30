@@ -1,95 +1,99 @@
-// ===== USERS =====
-let users = new Set();
+import os
+import asyncio
+import aiohttp
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import CommandStart
 
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = (msg.text || '').trim();
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-  users.add(chatId);
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
-  // ===== START + IMAGE =====
-  if (text.startsWith('/start')) {
-    return msg.send({
-      photo: 'https://telegra.ph/file/6e7f0f9c1c2c3d4e5f6a7.jpg', // փոխի քո նկարով
-      caption:
-        '👋 Բարի գալուստ\n\n' +
-        '📥 Ուղարկի link:\n' +
-        '• TikTok 🎥\n' +
-        '• YouTube 🎵\n' +
-        '• Instagram 📸\n\n' +
-        '📢 /broadcast text'
-    });
-  }
+users = set()
 
-  // ===== BROADCAST =====
-  if (text.startsWith('/broadcast ')) {
-    const message = text.replace('/broadcast ', '');
+# ===== START =====
+@dp.message(CommandStart())
+async def start(message: types.Message):
+    users.add(message.chat.id)
 
-    for (let id of users) {
-      try {
-        await bot.send(id, message);
-      } catch (e) {}
-    }
+    await message.answer_photo(
+        photo="https://telegra.ph/file/6e7f0f9c1c2c3d4e5f6a7.jpg",  # քո նկար
+        caption=(
+            "👋 Բարի գալուստ\n\n"
+            "📥 Ուղարկի link:\n"
+            "• TikTok 🎥\n"
+            "• YouTube 🎵\n"
+            "• Instagram 📸\n\n"
+            "📢 /broadcast text"
+        )
+    )
 
-    return msg.reply('✅ Ուղարկվեց բոլորին');
-  }
+# ===== MESSAGE =====
+@dp.message()
+async def handler(message: types.Message):
+    text = message.text or ""
+    users.add(message.chat.id)
 
-  // ===== TIKTOK =====
-  if (text.includes('tiktok.com')) {
-    try {
-      let url = text;
+    # ===== BROADCAST =====
+    if text.startswith("/broadcast "):
+        msg = text.replace("/broadcast ", "")
 
-      if (text.includes('vt.tiktok.com')) {
-        let res = await fetch(text, { redirect: 'follow' });
-        url = res.url;
-      }
+        for user in users:
+            try:
+                await bot.send_message(user, msg)
+            except:
+                pass
 
-      let res = await fetch('https://tikwm.com/api/?url=' + encodeURIComponent(url));
-      let data = await res.json();
+        return await message.answer("✅ Ուղարկվեց բոլորին")
 
-      if (!data?.data?.play) {
-        return msg.reply('❌ Չգտնվեց TikTok video');
-      }
+    # ===== TIKTOK =====
+    if "tiktok.com" in text:
+        try:
+            url = text
 
-      return msg.send({
-        video: data.data.play,
-        caption: '🎥 TikTok video'
-      });
+            if "vt.tiktok.com" in text:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(text, allow_redirects=True) as res:
+                        url = str(res.url)
 
-    } catch {
-      return msg.reply('❌ TikTok error');
-    }
-  }
+            async with aiohttp.ClientSession() as session:
+                async with session.get("https://tikwm.com/api/?url=" + url) as res:
+                    data = await res.json()
 
-  // ===== INSTAGRAM =====
-  if (text.includes('instagram.com')) {
-    try {
-      let res = await fetch('https://igram.world/api/ig?url=' + encodeURIComponent(text));
-      let data = await res.json();
+            video = data["data"]["play"]
 
-      if (!data?.result?.[0]?.url) {
-        return msg.reply('❌ Չգտնվեց Instagram media');
-      }
+            return await message.answer_video(video, caption="🎥 TikTok")
 
-      return msg.send({
-        video: data.result[0].url,
-        caption: '📸 Instagram media'
-      });
+        except:
+            return await message.answer("❌ TikTok error")
 
-    } catch {
-      return msg.reply('❌ Instagram error');
-    }
-  }
+    # ===== INSTAGRAM =====
+    if "instagram.com" in text:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get("https://igram.world/api/ig?url=" + text) as res:
+                    data = await res.json()
 
-  // ===== YOUTUBE =====
-  if (text.includes('youtube.com') || text.includes('youtu.be')) {
-    let link = 'https://api.vevioz.com/api/button/mp3?url=' + encodeURIComponent(text);
+            video = data["result"][0]["url"]
 
-    return msg.reply(
-      '🎵 Քաշելու համար սեղմի 👇\n' + link
-    );
-  }
+            return await message.answer_video(video, caption="📸 Instagram")
 
-  // ===== DEFAULT =====
-  msg.reply('📩 Ուղարկի link կամ գրի /start');
-});
+        except:
+            return await message.answer("❌ Instagram error")
+
+    # ===== YOUTUBE =====
+    if "youtube.com" in text or "youtu.be" in text:
+        link = "https://api.vevioz.com/api/button/mp3?url=" + text
+
+        return await message.answer(
+            "🎵 Քաշելու համար սեղմի 👇\n" + link
+        )
+
+    # ===== DEFAULT =====
+    await message.answer("📩 Ուղարկի link կամ գրի /start")
+
+# ===== RUN =====
+async def main():
+    await dp.start_polling(bot)
+
+asyncio.run(main())
