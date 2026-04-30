@@ -1,126 +1,95 @@
-import os
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
+// ===== USERS =====
+let users = new Set();
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL = "@yourchannel"
-ADMIN_ID = 123456789  # փոխի քո Telegram ID-ով
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = (msg.text || '').trim();
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
+  users.add(chatId);
 
-user_links = {}
-users = set()  # user-ների պահում
+  // ===== START + IMAGE =====
+  if (text.startsWith('/start')) {
+    return msg.send({
+      photo: 'https://telegra.ph/file/6e7f0f9c1c2c3d4e5f6a7.jpg', // փոխի քո նկարով
+      caption:
+        '👋 Բարի գալուստ\n\n' +
+        '📥 Ուղարկի link:\n' +
+        '• TikTok 🎥\n' +
+        '• YouTube 🎵\n' +
+        '• Instagram 📸\n\n' +
+        '📢 /broadcast text'
+    });
+  }
 
-# ✅ join check
-async def is_joined(user_id):
-    try:
-        member = await bot.get_chat_member(CHANNEL, user_id)
-        return member.status != "left"
-    except:
-        return False
+  // ===== BROADCAST =====
+  if (text.startsWith('/broadcast ')) {
+    const message = text.replace('/broadcast ', '');
 
-# 🚀 START (նկարով)
-@dp.message_handler(commands=["start"])
-async def start_cmd(message: types.Message):
-    users.add(message.from_user.id)
+    for (let id of users) {
+      try {
+        await bot.send(id, message);
+      } catch (e) {}
+    }
 
-    photo_url = "https://i.imgur.com/yourimage.jpg"  # քո նկարի link
+    return msg.reply('✅ Ուղարկվեց բոլորին');
+  }
 
-    text = """🚀 Multi Downloader Bot
+  // ===== TIKTOK =====
+  if (text.includes('tiktok.com')) {
+    try {
+      let url = text;
 
-📥 Download from:
-• YouTube
-• TikTok
-• Instagram
+      if (text.includes('vt.tiktok.com')) {
+        let res = await fetch(text, { redirect: 'follow' });
+        url = res.url;
+      }
 
-👇 Ուղարկի link"""
+      let res = await fetch('https://tikwm.com/api/?url=' + encodeURIComponent(url));
+      let data = await res.json();
 
-    await bot.send_photo(
-        message.chat.id,
-        photo=photo_url,
-        caption=text
-    )
+      if (!data?.data?.play) {
+        return msg.reply('❌ Չգտնվեց TikTok video');
+      }
 
-# 📩 link handler
-@dp.message_handler()
-async def handle_msg(message: types.Message):
-    users.add(message.from_user.id)
+      return msg.send({
+        video: data.data.play,
+        caption: '🎥 TikTok video'
+      });
 
-    if not await is_joined(message.from_user.id):
-        kb = InlineKeyboardMarkup().add(
-            InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL[1:]}")
-        )
-        await message.reply("Մուտք գործիր channel 👇", reply_markup=kb)
-        return
+    } catch {
+      return msg.reply('❌ TikTok error');
+    }
+  }
 
-    if "http" in message.text:
-        user_links[message.from_user.id] = message.text
+  // ===== INSTAGRAM =====
+  if (text.includes('instagram.com')) {
+    try {
+      let res = await fetch('https://igram.world/api/ig?url=' + encodeURIComponent(text));
+      let data = await res.json();
 
-        kb = InlineKeyboardMarkup()
-        kb.add(
-            InlineKeyboardButton("🎵 MP3", callback_data="mp3"),
-            InlineKeyboardButton("🎬 Video", callback_data="video")
-        )
+      if (!data?.result?.[0]?.url) {
+        return msg.reply('❌ Չգտնվեց Instagram media');
+      }
 
-        await message.reply("Ընտրիր 👇", reply_markup=kb)
-    else:
-        await message.reply("Ուղարկի link 🙂")
+      return msg.send({
+        video: data.result[0].url,
+        caption: '📸 Instagram media'
+      });
 
-# ⬇️ download
-@dp.callback_query_handler()
-async def download(call: types.CallbackQuery):
-    url = user_links.get(call.from_user.id)
+    } catch {
+      return msg.reply('❌ Instagram error');
+    }
+  }
 
-    if not url:
-        await call.message.reply("Սխալ 😕")
-        return
+  // ===== YOUTUBE =====
+  if (text.includes('youtube.com') || text.includes('youtu.be')) {
+    let link = 'https://api.vevioz.com/api/button/mp3?url=' + encodeURIComponent(text);
 
-    msg = await call.message.reply("Քաշում եմ... ⏳")
+    return msg.reply(
+      '🎵 Քաշելու համար սեղմի 👇\n' + link
+    );
+  }
 
-    try:
-        if call.data == "mp3":
-            cmd = f'yt-dlp -x --audio-format mp3 --ffmpeg-location /usr/bin -o "%(title)s.%(ext)s" "{url}"'
-        else:
-            cmd = f'yt-dlp -f "best[ext=mp4][filesize<50M]" -o "%(title)s.%(ext)s" "{url}"'
-
-        os.system(cmd)
-
-        for file in os.listdir():
-            if file.endswith((".mp3", ".mp4", ".mkv")):
-                with open(file, "rb") as f:
-                    await call.message.reply_document(f)
-                os.remove(file)
-
-    except:
-        await call.message.reply("Սխալ ❌")
-
-    await msg.delete()
-
-# 📣 BROADCAST
-@dp.message_handler(commands=["broadcast"])
-async def broadcast(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    text = message.get_args()
-
-    if not text:
-        await message.reply("Գրի տեքստը 🙂")
-        return
-
-    count = 0
-
-    for user_id in users:
-        try:
-            await bot.send_message(user_id, text)
-            count += 1
-        except:
-            pass
-
-    await message.reply(f"Ուղարկվեց {count} մարդուն ✅")
-
-# 🚀 start
-if __name__ == "__main__":
-    executor.start_polling(dp)
+  // ===== DEFAULT =====
+  msg.reply('📩 Ուղարկի link կամ գրի /start');
+});
